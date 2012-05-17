@@ -6,6 +6,14 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URLDecoder;
 
+import weka.classifiers.Classifier;
+import weka.classifiers.Evaluation;
+import weka.classifiers.bayes.NaiveBayes;
+import weka.core.Attribute;
+import weka.core.FastVector;
+import weka.core.Instance;
+import weka.core.Instances;
+
 
 public class Gram_nb {
 	//regular expression to filter non-alphanumeric characters (include French characters)
@@ -16,29 +24,35 @@ public class Gram_nb {
 	
 	/**
 	 * @param args
+	 * @throws Exception 
 	 */
-	public static void main(String[] args) {
-		if(args[0]!=null){
-			Gram_nb gnb = new Gram_nb();
-			List<String> featureSet = new ArrayList<String>();
-			String trainFilePath = args[0];
-			List<String> contents = new ArrayList();
-			List<tokenizedURL> tUrls = new ArrayList<tokenizedURL>();
-			contents = openFile(trainFilePath);
+	public static void main(String[] args) throws Exception {
+		if(args.length==2){
+		
 			
+			/**Create training instances**/
+			
+			Gram_nb 			gnb 			= new Gram_nb();
+			List<String> 		featureSet 		= new ArrayList<String>();
+			String 				trainFilePath 	= args[0];
+			List<String> 		contents 		= new ArrayList();
+			List<trigramURL> 	tUrls 			= new ArrayList<trigramURL>();
+			Instances			trainingData	= null;
+								contents 		= openFile(trainFilePath);
+
 			//Generate a list of tokenized URLs
 			for(String content:contents){
 				String[] contentSplit = content.split(" ");
 				if(contentSplit.length==1){
-					tUrls.add(gnb.new tokenizedURL(contentSplit[0]));
+					tUrls.add(gnb.new trigramURL(contentSplit[0]));
 				}
 				else if(contentSplit.length==2){
-					tUrls.add(gnb.new tokenizedURL(contentSplit[0],contentSplit[1]));
+					tUrls.add(gnb.new trigramURL(contentSplit[0],contentSplit[1]));
 				}
 			}
 			
 			//Generate the Set of Features
-			for(tokenizedURL tUrl:tUrls){
+			for(trigramURL tUrl:tUrls){
 				for(String token:tUrl.getTokens()){
 					if(!featureSet.contains(token))
 						featureSet.add(token);
@@ -48,7 +62,7 @@ public class Gram_nb {
 			//Generate Feature Vectors for each tokenized URL
 			for(int i=0; i<featureSet.size(); i++){
 				List<Integer> featureVec = new ArrayList<Integer>();
-				for(tokenizedURL tUrl:tUrls){
+				for(trigramURL tUrl:tUrls){
 					int counter = 0;
 					for(String token:tUrl.getTokens()){
 						if(compare(token,featureSet.get(i)))
@@ -58,16 +72,59 @@ public class Gram_nb {
 				}
 			}
 			
-			for(tokenizedURL tUrl:tUrls){
-//				System.out.println(tUrl.toString());
-				List<Integer> vectors = tUrl.getFeatureVec();
-				System.out.println("Url:"+tUrl.getUrl());
-				System.out.println("Feature:{"+featureSet+"}");
-				System.out.print("Vectors:{[");
-				for(int i:vectors)
-					System.out.print(" "+i+",  ");
-				System.out.println("]}\n");
+			//Generate training data instances
+			trainingData = getInstances(featureSet, tUrls, "training");
+			
+			
+			/**Create testing Instances**/
+			
+			Gram_nb 			testgnb 		= new Gram_nb();
+			String 				testFilePath 	= args[1];
+			List<String> 		testContents 	= new ArrayList<String>();
+			List<trigramURL> 	testtUrls 		= new ArrayList<trigramURL>();
+			Instances			testingData		= null;
+								testContents 	= openFile(testFilePath);
+			
+			//Generate a list of tokenized URLs
+			for(String content:testContents){
+				String[] contentSplit = content.split(" ");
+				if(contentSplit.length==1){
+					testtUrls.add(testgnb.new trigramURL(contentSplit[0]));
+				}
+				else if(contentSplit.length==2){
+					testtUrls.add(testgnb.new trigramURL(contentSplit[0],contentSplit[1]));
+				}
 			}
+			
+			//Generate Feature Vectors for each tokenized URL
+			for(int i=0; i<featureSet.size(); i++){
+				List<Integer> featureVec = new ArrayList<Integer>();
+				for(trigramURL tUrl:testtUrls){
+					int counter = 0;
+					for(String token:tUrl.getTokens()){
+						if(compare(token, featureSet.get(i)))
+							counter++;
+					}
+					tUrl.getFeatureVec().add(counter);
+				}
+			}
+				
+			//Generate testing data instances
+			testingData = getInstances(featureSet, testtUrls, "testing");
+
+			
+			/**Build the Classifier and Evaluate the model**/
+			
+			//train classifier
+			Classifier cls = new NaiveBayes();
+			cls.buildClassifier(trainingData);
+			
+			//evaluate classifier
+			Evaluation eval = new Evaluation(trainingData);
+			eval.evaluateModel(cls, testingData);
+			FastVector prediction = new FastVector();
+			prediction = eval.predictions();
+			System.out.println(prediction.toString());
 		}
 	}
 	
@@ -99,19 +156,65 @@ public class Gram_nb {
 
 	}
 	
+	private static Instances getInstances(List<String> featureSet, List<trigramURL> tUrls, String type){
+		FastVector	atts;
+		FastVector	attsRel;
+		FastVector	attVals;
+		FastVector	attValsRel;
+		Instances	data;
+		Instances	dataRel;
+		double[]	vals;
+		int[]		valsRel;
+		int			i;
+		
+	    // 1. set up attributes
+	    atts = new FastVector();
+	    // and numeric attributes
+	    for(i=0; i<featureSet.size(); i++)
+	    	atts.addElement(new Attribute("attr"+(i+1)));
+	    // add nominal attribute
+	    attVals = new FastVector();
+	    attVals.addElement("en");
+	    attVals.addElement("fr");
+	    attVals.addElement("?");
+	    atts.addElement(new Attribute("language", attVals));
+	    
+	    // 2. create Instances object
+	    data = new Instances("Gram_nb_"+type, atts, 0);
+	    
+	    // 3. fill with data
+	    // first instance
+	    for(trigramURL tUrl:tUrls){
+	    	vals = new double[data.numAttributes()];
+	    	List<Integer> vector = tUrl.getFeatureVec();
+	    	for(i=0; i<(vals.length-1); i++)
+	    		vals[i] = vector.get(i);
+	    	vals[vals.length-1] = attVals.indexOf(tUrl.getLanguage());
+	    	data.add(new Instance(1, vals));
+	    }
+	    
+	    // 4. output data
+	    System.out.println(data);
+	    return data;
+	}
+	
 	private static Boolean compare(String left, String right){
-		if(left.length()!=right.length()) 
+		if(left.length()!=right.length()) {
 			return false;
-		if(left.startsWith("_")||right.startsWith("_")) 
+		}
+		if(left.startsWith("_")||right.startsWith("_")) {
 			return compare(left.substring(1, left.length()),right.substring(1, right.length()));
-		if(left.endsWith("_")||right.endsWith("_"))
-			return compare(left.substring(0, left.length()-1),right.substring(0, right.length()-2));
-		if(left.equals(right))
+		}
+		if(left.endsWith("_")||right.endsWith("_")){
+			return compare(left.substring(0, left.length()-1),right.substring(0, right.length()-1));
+		}
+		if(left.equals(right)){
 			return true;
+		}
 		return false;
 	}
 	
-	public class tokenizedURL{
+	public class trigramURL{
 		String url = null;
 		String language = null;
 		List<String> tokens = new ArrayList<String>();
@@ -120,13 +223,13 @@ public class Gram_nb {
 
 		URLDecoder decoder = new URLDecoder();
 		
-		public tokenizedURL(String url){
+		public trigramURL(String url){
 			this.url = decoder.decode(url);
 			this.tokens = filter(this.url);
 			this.language = "?";
 		}
 		
-		public tokenizedURL(String url, String language){
+		public trigramURL(String url, String language){
 			this.url = decoder.decode(url);
 			this.language = language;
 			this.tokens = filter(this.url);

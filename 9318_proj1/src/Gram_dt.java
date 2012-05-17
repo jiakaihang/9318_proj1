@@ -5,16 +5,17 @@ import java.io.FileReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URLDecoder;
+
+import weka.classifiers.Classifier;
+import weka.classifiers.Evaluation;
+import weka.classifiers.bayes.NaiveBayes;
 import weka.core.Attribute;
 import weka.core.FastVector;
 import weka.core.Instance;
 import weka.core.Instances;
-import weka.classifiers.*;
-import weka.classifiers.bayes.NaiveBayes;
-import weka.classifiers.Evaluation;
 
 
-public class Word_nb {
+public class Gram_dt {
 	//regular expression to filter non-alphanumeric characters (include French characters)
 	final static String regex = "[^a-zA-ZÀ-ÿ]+";  
 	final static String[] FilterTxt = {"www", "index", "html", "htm", "http", "https"};
@@ -31,11 +32,11 @@ public class Word_nb {
 			
 			/**Create training instances**/
 			
-			Word_nb 			wnb 			= new Word_nb();
+			Gram_dt 			gdt 			= new Gram_dt();
 			List<String> 		featureSet 		= new ArrayList<String>();
 			String 				trainFilePath 	= args[0];
 			List<String> 		contents 		= new ArrayList();
-			List<tokenizedURL> 	tUrls 			= new ArrayList<tokenizedURL>();
+			List<trigramURL> 	tUrls 			= new ArrayList<trigramURL>();
 			Instances			trainingData	= null;
 								contents 		= openFile(trainFilePath);
 
@@ -43,15 +44,15 @@ public class Word_nb {
 			for(String content:contents){
 				String[] contentSplit = content.split(" ");
 				if(contentSplit.length==1){
-					tUrls.add(wnb.new tokenizedURL(contentSplit[0]));
+					tUrls.add(gdt.new trigramURL(contentSplit[0]));
 				}
 				else if(contentSplit.length==2){
-					tUrls.add(wnb.new tokenizedURL(contentSplit[0],contentSplit[1]));
+					tUrls.add(gdt.new trigramURL(contentSplit[0],contentSplit[1]));
 				}
 			}
 			
 			//Generate the Set of Features
-			for(tokenizedURL tUrl:tUrls){
+			for(trigramURL tUrl:tUrls){
 				for(String token:tUrl.getTokens()){
 					if(!featureSet.contains(token))
 						featureSet.add(token);
@@ -61,10 +62,10 @@ public class Word_nb {
 			//Generate Feature Vectors for each tokenized URL
 			for(int i=0; i<featureSet.size(); i++){
 				List<Integer> featureVec = new ArrayList<Integer>();
-				for(tokenizedURL tUrl:tUrls){
+				for(trigramURL tUrl:tUrls){
 					int counter = 0;
 					for(String token:tUrl.getTokens()){
-						if(token.equals(featureSet.get(i)))
+						if(compare(token,featureSet.get(i)))
 							counter++;
 					}
 					tUrl.getFeatureVec().add(counter);
@@ -77,10 +78,10 @@ public class Word_nb {
 			
 			/**Create testing Instances**/
 			
-			Word_nb 			testWnb 		= new Word_nb();
+			Gram_dt 			testgdt 		= new Gram_dt();
 			String 				testFilePath 	= args[1];
 			List<String> 		testContents 	= new ArrayList<String>();
-			List<tokenizedURL> 	testtUrls 		= new ArrayList<tokenizedURL>();
+			List<trigramURL> 	testtUrls 		= new ArrayList<trigramURL>();
 			Instances			testingData		= null;
 								testContents 	= openFile(testFilePath);
 			
@@ -88,20 +89,20 @@ public class Word_nb {
 			for(String content:testContents){
 				String[] contentSplit = content.split(" ");
 				if(contentSplit.length==1){
-					testtUrls.add(testWnb.new tokenizedURL(contentSplit[0]));
+					testtUrls.add(testgdt.new trigramURL(contentSplit[0]));
 				}
 				else if(contentSplit.length==2){
-					testtUrls.add(testWnb.new tokenizedURL(contentSplit[0],contentSplit[1]));
+					testtUrls.add(testgdt.new trigramURL(contentSplit[0],contentSplit[1]));
 				}
 			}
 			
 			//Generate Feature Vectors for each tokenized URL
 			for(int i=0; i<featureSet.size(); i++){
 				List<Integer> featureVec = new ArrayList<Integer>();
-				for(tokenizedURL tUrl:testtUrls){
+				for(trigramURL tUrl:testtUrls){
 					int counter = 0;
 					for(String token:tUrl.getTokens()){
-						if(token.equals(featureSet.get(i)))
+						if(compare(token, featureSet.get(i)))
 							counter++;
 					}
 					tUrl.getFeatureVec().add(counter);
@@ -152,9 +153,10 @@ public class Word_nb {
 			}
 		}
 		return contents;
+
 	}
 	
-	private static Instances getInstances(List<String> featureSet, List<tokenizedURL> tUrls, String type){
+	private static Instances getInstances(List<String> featureSet, List<trigramURL> tUrls, String type){
 		FastVector	atts;
 		FastVector	attsRel;
 		FastVector	attVals;
@@ -178,11 +180,11 @@ public class Word_nb {
 	    atts.addElement(new Attribute("language", attVals));
 	    
 	    // 2. create Instances object
-	    data = new Instances("Word_nb_"+type, atts, 0);
+	    data = new Instances("Gram_dt_"+type, atts, 0);
 	    
 	    // 3. fill with data
 	    // first instance
-	    for(tokenizedURL tUrl:tUrls){
+	    for(trigramURL tUrl:tUrls){
 	    	vals = new double[data.numAttributes()];
 	    	List<Integer> vector = tUrl.getFeatureVec();
 	    	for(i=0; i<(vals.length-1); i++)
@@ -196,22 +198,38 @@ public class Word_nb {
 	    return data;
 	}
 	
-	public class tokenizedURL{
+	private static Boolean compare(String left, String right){
+		if(left.length()!=right.length()) {
+			return false;
+		}
+		if(left.startsWith("_")||right.startsWith("_")) {
+			return compare(left.substring(1, left.length()),right.substring(1, right.length()));
+		}
+		if(left.endsWith("_")||right.endsWith("_")){
+			return compare(left.substring(0, left.length()-1),right.substring(0, right.length()-1));
+		}
+		if(left.equals(right)){
+			return true;
+		}
+		return false;
+	}
+	
+	public class trigramURL{
 		String url = null;
-		String language = "?";
+		String language = null;
 		List<String> tokens = new ArrayList<String>();
 		List<Integer> featureVec = new ArrayList<Integer>();
 
 
 		URLDecoder decoder = new URLDecoder();
 		
-		public tokenizedURL(String url){
+		public trigramURL(String url){
 			this.url = decoder.decode(url);
 			this.tokens = filter(this.url);
 			this.language = "?";
 		}
 		
-		public tokenizedURL(String url, String language){
+		public trigramURL(String url, String language){
 			this.url = decoder.decode(url);
 			this.language = language;
 			this.tokens = filter(this.url);
@@ -222,11 +240,21 @@ public class Word_nb {
 			String[] ss = URL.split(regex);
 			for(String s:ss){
 				if(!Stop_Words.contains(s) && s.length()>=2)
-					list.add(s.toLowerCase());
+					list.addAll(getTrigrams(s));
 			}
 			return list;
 		}
 		
+		private List<String> getTrigrams(String s) {
+			List<String> trigrams = new ArrayList<String>();
+			for(int i=0; i<s.length(); i++){
+				if(i==0)					{trigrams.add("_"+s.substring(i, i+2).toLowerCase());}
+				else if(i == s.length()-1)	{trigrams.add(s.substring(i-1, i+1).toLowerCase()+"_");}
+				else						{trigrams.add(s.substring(i-1, i+2).toLowerCase());}
+			}
+			return trigrams;
+		}
+
 		/**
 		 * @return the url
 		 */
